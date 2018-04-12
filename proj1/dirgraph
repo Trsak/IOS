@@ -1,0 +1,272 @@
+#!/bin/sh
+POSIXLY_CORRECT=yes
+
+############################################################
+# IOS - Project c. 1                                       #
+# Author: Petr Sopf (xsopfp00@stud.fit.vutbr.cz)           #
+############################################################
+
+####### Functions
+# Bad usage of arguments, print error to stderror and exit
+usage() {
+  echo "Usage: $0 [-i FILE_ERE] [-n] [DIR]" 1>&2;
+  exit 1;
+}
+
+# Count file sizes
+filesizes() {
+  FILESIZE=$1
+  if [ "$FILESIZE" -lt 100 ]; then
+    bs=$((bs+1));
+  elif [ "$FILESIZE" -lt 1024 ]; then
+    kibj=$((kibj+1));
+  elif [ "$FILESIZE" -lt 10240 ]; then
+    kibd=$((kibd+1));
+  elif [ "$FILESIZE" -lt 102400 ]; then
+    kibs=$((kibs+1));
+  elif [ "$FILESIZE" -lt 1048576 ]; then
+    mibj=$((mibj+1));
+  elif [ "$FILESIZE" -lt 10485760 ]; then
+    mibd=$((mibd+1));
+  elif [ "$FILESIZE" -lt 104857600 ]; then
+    mibs=$((mibs+1));
+  elif [ "$FILESIZE" -lt 1073741824 ]; then
+    gibj=$((gibj+1));
+  elif [ "$FILESIZE" -ge 1073741824 ]; then
+    gibo=$((gibo+1));
+  fi
+}
+
+# Draw hashtags
+drawHT() {
+  num=$1
+
+  if [ "$n" = "1" ]; then
+    if [ -t 1 ] ; then
+      cols=`tput cols`;
+      if [ "$2" = "0" ] ; then
+        cols=`expr $cols - 13`
+      else
+        cols=`expr $cols - 48`
+      fi;
+    else
+      cols="79"
+    fi
+
+    if [ "$cols" -lt "$biggiest" ]; then
+      percent=$(LANG=C awk "BEGIN {printf \"%.7f\",${biggiest}/${cols}}")
+      num=$(LANG=C awk "BEGIN {printf \"%.7f\",${num}/${percent}}")
+      num=${num%.*}
+    fi
+  fi
+
+  a=0
+  while [ $a -lt $num ]
+  do
+     printf "#"
+     a=`expr $a + 1`
+  done
+  printf "\n"
+}
+
+# Get biggiest row
+getbiggiest() {
+  values=$@
+  for value in $values
+  do
+    if [ "$value" -gt "$biggiest" ]; then
+      biggiest=$value
+    fi
+  done
+}
+
+####### Code
+while getopts "ni:" o; do
+    case "${o}" in
+        i)
+            if [ "$iset" = "1" ]; then
+              usage
+            fi
+            ignore=${OPTARG}
+            iset=1
+            ;;
+        n)
+            if [ "$n" = "1" ]; then
+              usage
+            fi
+            n=1
+            ;;
+        :)
+            usage
+            ;;
+        \?)
+            usage
+            ;;
+    esac
+done
+
+shift $(($OPTIND-1))
+
+if [ -z "$1" ]; then DIR="."; else DIR="$1"; fi
+if [ ! -z "$2" ]; then usage; exit 1; fi
+
+if [ ! -d "$DIR" ]; then
+  echo "ERROR: Directory \"$DIR\" doesn't exist!" 1>&2;
+  exit 1;
+fi
+
+DIRECTORIES=0
+FILES=0
+
+bs=0
+kibj=0
+kibd=0
+kibs=0
+mibj=0
+mibd=0
+mibs=0
+gibj=0
+gibo=0
+
+if [ -z "$ignore" ];
+then
+  DIRECTORIES=`find $DIR -type d | wc -l`
+  FILESALL=`find $DIR -type f -print`;
+  FILES=0
+  for file in $FILESALL
+  do
+    FILES=$((FILES+1));
+  done
+  FILETYPES=`find $DIR -type f -exec bash -c 'file -b "{}"' \; | sort | uniq -c | sort -nr`;
+else
+  ALL=`find $DIR`
+  FILESALL=""
+  DIRECTORIESALL=""
+  FILESALLTYPES=""
+
+  for file in $ALL
+  do
+    rootdir=0
+    if [ "$DIR" = "$file" ]; then
+      rootdir=1;
+    fi
+
+    tmpt=`echo $file | sed 's#.*/##' | egrep -v "${ignore}"`
+    if [ ! "x$tmpt" = "x" ]; then
+      FDIR=`dirname "${file}"`
+      FNAME=`basename "${file}"`
+      OK=1
+
+      for i in $(echo $FDIR | tr "/" "\n")
+      do
+        ptest=`echo $i | egrep "${ignore}"`
+        if [ "$i" = "$ptest" ] && [ ! "$i" = "." ]; then
+          OK=0
+          break;
+        fi
+      done
+
+      if [ "$OK" = "1" ]; then
+        if [ -d "$file" ]; then
+          DIRECTORIESALL="$DIRECTORIESALL$file
+          "
+          DIRECTORIES=$((DIRECTORIES+1));
+        elif  [ -f "$file" ]; then
+          FILESALL="$FILESALL$file
+          "
+          type=`file -b $file`
+          if [ ! "x$FILESALLTYPES" = "x" ]; then
+            FILESALLTYPES="$FILESALLTYPES\n";
+          fi
+          FILESALLTYPES="$FILESALLTYPES$type";
+          FILES=$((FILES+1));
+        fi
+      fi
+    elif [ "$rootdir" = 1 ]; then
+      echo "ERROR: You can't ignore root directory!" 1>&2;
+      exit 1;
+    fi
+  done
+  FILETYPES=`echo -e "$FILESALLTYPES" | sort | uniq -c | sort -nr`;
+fi
+
+echo "Root directory: $DIR"
+echo "Directories: $DIRECTORIES" | xargs
+echo "All files: $FILES" | xargs
+echo "File size histogram:"
+
+for FILE in $FILESALL
+do
+  FILESIZE=$(wc -c <"$FILE")
+  filesizes $FILESIZE
+done
+
+if [ "$n" = "1" ]; then
+  biggiest=0
+  getbiggiest $bs $kibj $kibd $kibs $mibj $mibd $mibs $gibj $gibo
+fi
+
+printf "  <100 B  : "
+drawHT "$bs" "0"
+printf "  <1 KiB  : "
+drawHT "$kibj" "0"
+printf "  <10 KiB : "
+drawHT "$kibd" "0"
+printf "  <100 KiB: "
+drawHT "$kibs" "0"
+printf "  <1 MiB  : "
+drawHT "$mibj" "0"
+printf "  <10 MiB : "
+drawHT "$mibd" "0"
+printf "  <100 MiB: "
+drawHT "$mibs" "0"
+printf "  <1 GiB  : "
+drawHT "$gibj" "0"
+printf "  >=1 GiB : "
+drawHT "$gibo" "0"
+
+
+echo "File type histogram:"
+
+IFS='
+'
+count=0
+for item in $FILETYPES
+do
+  count=$((count+1))
+  if [ "$count" -gt 10 ]; then
+    break;
+  fi
+  fcount=`echo $item | head -n1 | awk '{print $1;}'`
+  item=`echo "$item" | sed -e 's/^[ \t]*//'`
+  prefix="$fcount "
+  item=${item#$prefix};
+  length=${#item}
+  lengthcut=$((length-40));
+
+
+  if [ "$n" = "1" ] && [ "$count" = "1" ]; then
+    biggiest=$fcount
+  fi
+
+  while [ $lengthcut -gt 0 ]
+  do
+     item=`expr " $item" : ' \(.*\).'`
+     lengthcut=`expr $lengthcut - 1`
+     if [ "$lengthcut" -eq 0 ]; then
+       item="$item..."
+     fi
+     length="43";
+  done
+
+  while [ $length -lt 43 ]
+  do
+    item="$item "
+    length=$((length+1));
+  done
+
+  printf "  $item: "
+  drawHT "$fcount"
+done
+
+exit 0
